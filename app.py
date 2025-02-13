@@ -2,10 +2,7 @@ import streamlit as st
 from docx import Document
 import re
 from io import StringIO
-import spacy
-
-# Load spaCy model for keyword extraction
-nlp = spacy.load("en_core_web_sm")
+from rake_nltk import Rake  # Alternative keyword extraction library
 
 # Configuración inicial de la página
 st.set_page_config(page_title="Manuscript Review Assistant", page_icon="📚")
@@ -57,6 +54,8 @@ if uploaded_file:
         
         # Verificar formato básico
         def check_format(text):
+            if not text:  # Handle empty or malformed text
+                return {"word_count": 0, "pages_estimate": 0}
             word_count = len(re.findall(r'\w+', text))
             pages_estimate = word_count / 250  # Estimación: 250 palabras por página
             return {
@@ -66,10 +65,24 @@ if uploaded_file:
         
         format_info = check_format(manuscript_text)
         
+        # Validate format_info
+        if 'pages_estimate' not in format_info or 'word_count' not in format_info:
+            st.error("Failed to calculate manuscript statistics. Please check the uploaded file.")
+            st.stop()
+        
         # Feedback general
         st.subheader("General Feedback")
         st.write(f"- Estimated word count: **{format_info['word_count']}**")
-        st.write(f"- Estimated page count: **{format_info['pages_estimate']:.1f} pages**")
+        st.write(f"- Estimated page count: **{format_info.get('pages_estimate', 0):.1f} pages**")
+        
+        # Keyword extraction using RAKE
+        def extract_keywords(text):
+            r = Rake()
+            r.extract_keywords_from_text(text)
+            return r.get_ranked_phrases()[:5]  # Top 5 keywords
+        
+        keywords = extract_keywords(manuscript_text)
+        st.write(f"- Suggested Keywords: **{', '.join(keywords)}**")
         
         # Evaluar según la revista seleccionada
         if st.button("Evaluate Manuscript"):
@@ -93,15 +106,6 @@ if uploaded_file:
             
             # Similar evaluations for other journals...
             
-            # Keyword extraction
-            def extract_keywords(text):
-                doc = nlp(text)
-                keywords = [chunk.text for chunk in doc.noun_chunks]
-                return list(set(keywords))[:5]  # Top 5 unique keywords
-            
-            keywords = extract_keywords(manuscript_text)
-            st.write(f"- Suggested Keywords: **{', '.join(keywords)}**")
-            
             # Additional Suggestions
             st.subheader("Additional Suggestions")
             st.write("""
@@ -123,7 +127,7 @@ if uploaded_file:
         if st.button("Download Report"):
             feedback = f"Evaluation for {journal}\n"
             feedback += f"- Estimated word count: {format_info['word_count']}\n"
-            feedback += f"- Estimated page count: {format_info['pages_estimate']:.1f} pages\n"
+            feedback += f"- Estimated page count: {format_info.get('pages_estimate', 0):.1f} pages\n"
             feedback += f"- Suggested Keywords: {', '.join(keywords)}\n"
             st.download_button("Download Report", generate_report(feedback), file_name="evaluation_report.txt")
     
